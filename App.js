@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
+import Ionicons from 'react-native-vector-icons/Ionicons'; // Importation des icônes Ionicons
 
 // Création d'un contexte pour l'historique
 const HistoryContext = createContext();
@@ -78,9 +79,7 @@ const MemoSwitchApp = ({ navigation }) => {
   };
 
   /**
-   * Fonction qui éteint toutes les lampes (relais) en même temps.
-   * Pour chaque lampe qui est allumée, on met à jour la durée active, on crée une entrée d'historique,
-   * on envoie la commande d'extinction à l'ESP32 et on met à jour son état.
+   * Fonction qui éteint toutes les lampes en même temps.
    */
   const turnOffAll = async () => {
     const now = Date.now();
@@ -97,7 +96,35 @@ const MemoSwitchApp = ({ navigation }) => {
             timestamp: new Date().toLocaleString(),
           };
           setHistory((prevHistory) => [...prevHistory, newHistoryEntry]);
-          // Envoi de la commande d'extinction à l'ESP32 pour cette lampe
+          fetch(`${ESP32_IP}/toggle?pin=${lamp.pin}`, { method: 'GET' })
+            .catch(error => console.error('Erreur lors de la communication avec l’ESP32 :', error));
+          return updatedLamp;
+        }
+        return lamp;
+      })
+    );
+  };
+
+  /**
+   * Fonction qui allume toutes les lampes en même temps.
+   * Pour chaque lampe qui est éteinte, on met à jour la durée inactive, on crée une entrée d'historique,
+   * on envoie la commande d'allumage à l'ESP32 et on met à jour son état.
+   */
+  const turnOnAll = async () => {
+    const now = Date.now();
+    setLamps((prevLamps) =>
+      prevLamps.map((lamp) => {
+        if (!lamp.state) {
+          const elapsed = (now - lamp.lastTimestamp) / 60000;
+          const updatedLamp = { ...lamp, state: true, lastTimestamp: now };
+          updatedLamp.inactiveDuration = (lamp.inactiveDuration || 0) + elapsed;
+          const newHistoryEntry = {
+            lamp: lamp.name,
+            action: 'ON',
+            duration: elapsed.toFixed(2),
+            timestamp: new Date().toLocaleString(),
+          };
+          setHistory((prevHistory) => [...prevHistory, newHistoryEntry]);
           fetch(`${ESP32_IP}/toggle?pin=${lamp.pin}`, { method: 'GET' })
             .catch(error => console.error('Erreur lors de la communication avec l’ESP32 :', error));
           return updatedLamp;
@@ -196,10 +223,15 @@ const MemoSwitchApp = ({ navigation }) => {
         </TouchableOpacity>
       </View>
       
-      {/* Bouton pour éteindre toutes les lampes */}
-      <TouchableOpacity style={styles.turnOffButton} onPress={turnOffAll}>
-        <Text style={styles.turnOffButtonText}>Éteindre Tout</Text>
-      </TouchableOpacity>
+      {/* Boutons pour allumer et éteindre toutes les lampes */}
+      <View style={styles.globalControlContainer}>
+        <TouchableOpacity style={styles.turnOnButton} onPress={turnOnAll}>
+          <Ionicons name="flash" size={30} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.turnOffButton} onPress={turnOffAll}>
+          <Ionicons name="power" size={30} color="#fff" />
+        </TouchableOpacity>
+      </View>
       
       {/* Liste scrollable des lampes réparties en sections */}
       <SectionList
@@ -315,16 +347,20 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
+  globalControlContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 15,
+  },
+  turnOnButton: {
+    backgroundColor: '#28A745',
+    padding: 10,
+    borderRadius: 50,
+  },
   turnOffButton: {
     backgroundColor: '#FF6B6B',
     padding: 10,
-    borderRadius: 10,
-    alignSelf: 'center',
-    marginBottom: 15,
-  },
-  turnOffButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    borderRadius: 50,
   },
   listContent: {
     paddingBottom: 20,
