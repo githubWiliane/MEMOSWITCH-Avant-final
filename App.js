@@ -1,4 +1,4 @@
-import React, { useState, createContext, useContext } from 'react';
+import React, { useState, createContext, useContext, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -33,6 +33,36 @@ const MemoSwitchApp = ({ navigation }) => {
   
   // Récupération de l'historique via le contexte
   const { history, setHistory } = useContext(HistoryContext);
+
+  /**
+   * Effectue l'interrogation périodique de l'endpoint /status pour synchroniser l'état physique
+   * avec l'interface mobile.
+   */
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`${ESP32_IP}/status`);
+        const data = await response.json();
+        // data.relays doit être un tableau d'objets contenant pin et state
+        if (data.relays && Array.isArray(data.relays)) {
+          setLamps(prevLamps =>
+            prevLamps.map(lamp => {
+              const relayStatus = data.relays.find(r => r.pin === lamp.pin);
+              // Mise à jour de l'état si le relayStatus est trouvé
+              if (relayStatus !== undefined) {
+                return { ...lamp, state: relayStatus.state };
+              }
+              return lamp;
+            })
+          );
+        }
+      } catch (error) {
+        console.error("Erreur lors de l'interrogation du status :", error);
+      }
+    }, 2000); // Interroge toutes les 2 secondes
+
+    return () => clearInterval(interval);
+  }, []);
 
   /**
    * Bascule l'état d'une lampe (permanente ou personnalisée) en mettant à jour
