@@ -47,25 +47,22 @@ const MemoSwitchApp = ({ navigation }) => {
           const updatedLamp = { ...lamp, state: !lamp.state, lastTimestamp: now };
 
           if (lamp.state) {
-            // La lampe était allumée : on ajoute le temps à la durée active
             updatedLamp.activeDuration = (lamp.activeDuration || 0) + elapsed;
             newHistoryEntry = {
               lamp: lamp.name,
-              action: 'OFF (durée active)',
+              action: 'OFF',
               duration: elapsed.toFixed(2),
               timestamp: new Date().toLocaleString(),
             };
           } else {
-            // La lampe était éteinte : on ajoute le temps à la durée inactive
             updatedLamp.inactiveDuration = (lamp.inactiveDuration || 0) + elapsed;
             newHistoryEntry = {
               lamp: lamp.name,
-              action: 'ON (durée inactive)',
+              action: 'ON',
               duration: elapsed.toFixed(2),
               timestamp: new Date().toLocaleString(),
             };
           }
-          // Mise à jour de l'historique (partagé via le contexte)
           setHistory((prevHistory) => [...prevHistory, newHistoryEntry]);
           return updatedLamp;
         }
@@ -73,12 +70,41 @@ const MemoSwitchApp = ({ navigation }) => {
       })
     );
 
-    // Appel à l'ESP32 pour basculer la lampe (fonctionnalité existante)
     try {
       await fetch(`${ESP32_IP}/toggle?pin=${pin}`, { method: 'GET' });
     } catch (error) {
       console.error('Erreur lors de la communication avec l’ESP32 :', error);
     }
+  };
+
+  /**
+   * Fonction qui éteint toutes les lampes (relais) en même temps.
+   * Pour chaque lampe qui est allumée, on met à jour la durée active, on crée une entrée d'historique,
+   * on envoie la commande d'extinction à l'ESP32 et on met à jour son état.
+   */
+  const turnOffAll = async () => {
+    const now = Date.now();
+    setLamps((prevLamps) =>
+      prevLamps.map((lamp) => {
+        if (lamp.state) {
+          const elapsed = (now - lamp.lastTimestamp) / 60000;
+          const updatedLamp = { ...lamp, state: false, lastTimestamp: now };
+          updatedLamp.activeDuration = (lamp.activeDuration || 0) + elapsed;
+          const newHistoryEntry = {
+            lamp: lamp.name,
+            action: 'OFF',
+            duration: elapsed.toFixed(2),
+            timestamp: new Date().toLocaleString(),
+          };
+          setHistory((prevHistory) => [...prevHistory, newHistoryEntry]);
+          // Envoi de la commande d'extinction à l'ESP32 pour cette lampe
+          fetch(`${ESP32_IP}/toggle?pin=${lamp.pin}`, { method: 'GET' })
+            .catch(error => console.error('Erreur lors de la communication avec l’ESP32 :', error));
+          return updatedLamp;
+        }
+        return lamp;
+      })
+    );
   };
 
   /**
@@ -91,7 +117,7 @@ const MemoSwitchApp = ({ navigation }) => {
         id: newId,
         name: newSwitchName,
         state: false,
-        pin: 0, // Valeur par défaut pour un switch personnalisé
+        pin: 0,
         permanent: false,
         activeDuration: 0,
         inactiveDuration: 0,
@@ -125,7 +151,6 @@ const MemoSwitchApp = ({ navigation }) => {
   const renderItem = ({ item }) => (
     <View style={styles.lampRow}>
       <Text style={styles.lampName}>{item.name}</Text>
-      {/* Conteneur pour le switch et ses labels "OFF" et "ON" */}
       <View style={styles.switchWrapper}>
         <Text style={[styles.switchLabel, !item.state && styles.activeSwitchLabel]}>OFF</Text>
         <Switch
@@ -135,7 +160,6 @@ const MemoSwitchApp = ({ navigation }) => {
         />
         <Text style={[styles.switchLabel, item.state && styles.activeSwitchLabel]}>ON</Text>
       </View>
-      {/* Bouton de suppression visible uniquement pour les switches personnalisés */}
       {!item.permanent && (
         <TouchableOpacity
           onPress={() => deleteCustomSwitch(item.id)}
@@ -172,6 +196,11 @@ const MemoSwitchApp = ({ navigation }) => {
         </TouchableOpacity>
       </View>
       
+      {/* Bouton pour éteindre toutes les lampes */}
+      <TouchableOpacity style={styles.turnOffButton} onPress={turnOffAll}>
+        <Text style={styles.turnOffButtonText}>Éteindre Tout</Text>
+      </TouchableOpacity>
+      
       {/* Liste scrollable des lampes réparties en sections */}
       <SectionList
         sections={sections}
@@ -193,7 +222,6 @@ const MemoSwitchApp = ({ navigation }) => {
 };
 
 const HistoryScreen = ({ navigation }) => {
-  // Récupération de l'historique depuis le contexte
   const { history, setHistory } = useContext(HistoryContext);
 
   /**
@@ -207,7 +235,6 @@ const HistoryScreen = ({ navigation }) => {
     <View style={styles.container}>
       <Text style={styles.header}>Historique</Text>
       
-      {/* Bouton avec icône pour vider l'historique */}
       <TouchableOpacity style={styles.clearHistoryButton} onPress={clearHistory}>
         <Text style={styles.clearHistoryText}>🗑️ Vider l'historique</Text>
       </TouchableOpacity>
@@ -259,7 +286,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   header: {
-    marginTop: 40, // Décalage pour que l'en-tête ne soit pas coupé
+    marginTop: 40,
     color: '#fff',
     fontSize: 30,
     fontWeight: 'bold',
@@ -285,6 +312,17 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   addButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  turnOffButton: {
+    backgroundColor: '#FF6B6B',
+    padding: 10,
+    borderRadius: 10,
+    alignSelf: 'center',
+    marginBottom: 15,
+  },
+  turnOffButtonText: {
     color: '#fff',
     fontWeight: 'bold',
   },
