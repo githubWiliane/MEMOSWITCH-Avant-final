@@ -1,4 +1,4 @@
-import React, { useState, createContext, useContext, useEffect, useRef } from 'react';
+import React, { useState, createContext, useContext, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -28,21 +28,9 @@ const MemoSwitchApp = ({ navigation }) => {
     { id: '5', name: 'Lampe 5', state: false, pin: 13, permanent: true, activeDuration: 0, inactiveDuration: 0, lastTimestamp: Date.now() },
   ]);
 
-  // Pour disposer d'une référence à l'état actuel des lampes dans les callbacks
-  const lampsRef = useRef(lamps);
-  useEffect(() => {
-    lampsRef.current = lamps;
-  }, [lamps]);
-
   // État pour le nom d'un nouveau switch personnalisé
   const [newSwitchName, setNewSwitchName] = useState('');
-
-  // États pour l'enregistrement des actions et la lecture (play)
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordedActions, setRecordedActions] = useState([]);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playTimeouts, setPlayTimeouts] = useState([]);
-
+  
   // Récupération de l'historique via le contexte
   const { history, setHistory } = useContext(HistoryContext);
 
@@ -97,15 +85,6 @@ const MemoSwitchApp = ({ navigation }) => {
               duration: elapsed.toFixed(2),
               timestamp: new Date().toLocaleString(),
             };
-            if (isRecording) {
-              setRecordedActions(prev => [...prev, {
-                id: lamp.id,
-                pin: lamp.pin,
-                lamp: lamp.name,
-                action: 'OFF',
-                timestamp: now,
-              }]);
-            }
           } else {
             updatedLamp.inactiveDuration = (lamp.inactiveDuration || 0) + elapsed;
             newHistoryEntry = {
@@ -114,15 +93,6 @@ const MemoSwitchApp = ({ navigation }) => {
               duration: elapsed.toFixed(2),
               timestamp: new Date().toLocaleString(),
             };
-            if (isRecording) {
-              setRecordedActions(prev => [...prev, {
-                id: lamp.id,
-                pin: lamp.pin,
-                lamp: lamp.name,
-                action: 'ON',
-                timestamp: now,
-              }]);
-            }
           }
           setHistory((prevHistory) => [...prevHistory, newHistoryEntry]);
           return updatedLamp;
@@ -156,15 +126,6 @@ const MemoSwitchApp = ({ navigation }) => {
             timestamp: new Date().toLocaleString(),
           };
           setHistory((prevHistory) => [...prevHistory, newHistoryEntry]);
-          if (isRecording) {
-            setRecordedActions(prev => [...prev, {
-              id: lamp.id,
-              pin: lamp.pin,
-              lamp: lamp.name,
-              action: 'OFF',
-              timestamp: now,
-            }]);
-          }
           fetch(`${ESP32_IP}/toggle?pin=${lamp.pin}`, { method: 'GET' })
             .catch(error => console.error('Erreur lors de la communication avec l’ESP32 :', error));
           return updatedLamp;
@@ -194,15 +155,6 @@ const MemoSwitchApp = ({ navigation }) => {
             timestamp: new Date().toLocaleString(),
           };
           setHistory((prevHistory) => [...prevHistory, newHistoryEntry]);
-          if (isRecording) {
-            setRecordedActions(prev => [...prev, {
-              id: lamp.id,
-              pin: lamp.pin,
-              lamp: lamp.name,
-              action: 'ON',
-              timestamp: now,
-            }]);
-          }
           fetch(`${ESP32_IP}/toggle?pin=${lamp.pin}`, { method: 'GET' })
             .catch(error => console.error('Erreur lors de la communication avec l’ESP32 :', error));
           return updatedLamp;
@@ -240,55 +192,6 @@ const MemoSwitchApp = ({ navigation }) => {
     setLamps((prevLamps) =>
       prevLamps.filter((lamp) => lamp.id !== id || lamp.permanent)
     );
-  };
-
-  /**
-   * Active/désactive l'enregistrement des actions.
-   */
-  const toggleRecording = () => {
-    if (isRecording) {
-      setIsRecording(false);
-      console.log('Enregistrement arrêté');
-    } else {
-      setRecordedActions([]);
-      setIsRecording(true);
-      console.log('Enregistrement démarré');
-    }
-  };
-
-  /**
-   * Démarre ou arrête la lecture des actions enregistrées.
-   */
-  const playRecording = () => {
-    // Si déjà en lecture, on arrête la lecture en annulant tous les timeouts
-    if (isPlaying) {
-      playTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
-      setPlayTimeouts([]);
-      setIsPlaying(false);
-      console.log('Lecture arrêtée');
-      return;
-    }
-    if (recordedActions.length === 0) {
-      console.log('Aucune action enregistrée à rejouer');
-      return;
-    }
-    setIsPlaying(true);
-    const startTime = recordedActions[0].timestamp;
-    const newTimeouts = [];
-    recordedActions.forEach(action => {
-      const delay = action.timestamp - startTime;
-      const timeoutId = setTimeout(() => {
-        // Utiliser la référence pour obtenir l'état actuel des lampes
-        const lamp = lampsRef.current.find(l => l.id === action.id);
-        if (lamp) {
-          if ((action.action === 'ON' && !lamp.state) || (action.action === 'OFF' && lamp.state)) {
-            toggleLamp(lamp.id, lamp.pin);
-          }
-        }
-      }, delay);
-      newTimeouts.push(timeoutId);
-    });
-    setPlayTimeouts(newTimeouts);
   };
 
   // Séparation en deux sections : lampes permanentes et switches personnalisés.
@@ -357,16 +260,6 @@ const MemoSwitchApp = ({ navigation }) => {
         </TouchableOpacity>
         <TouchableOpacity style={styles.turnOffButton} onPress={turnOffAll}>
           <Ionicons name="power" size={30} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Nouveaux boutons Record et Play/Stop */}
-      <View style={styles.recordPlayContainer}>
-        <TouchableOpacity style={styles.recordButton} onPress={toggleRecording}>
-          <Text style={styles.recordButtonText}>{isRecording ? 'Stop Recording' : 'Record'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.playButton} onPress={playRecording}>
-          <Text style={styles.playButtonText}>{isPlaying ? 'Stop' : 'Play'}</Text>
         </TouchableOpacity>
       </View>
       
@@ -498,33 +391,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF6B6B',
     padding: 10,
     borderRadius: 50,
-  },
-  recordPlayContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 15,
-  },
-  recordButton: {
-    backgroundColor: '#FFC107',
-    padding: 10,
-    borderRadius: 10,
-    flex: 0.45,
-    alignItems: 'center',
-  },
-  recordButtonText: {
-    color: '#000',
-    fontWeight: 'bold',
-  },
-  playButton: {
-    backgroundColor: '#17A2B8',
-    padding: 10,
-    borderRadius: 10,
-    flex: 0.45,
-    alignItems: 'center',
-  },
-  playButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
   },
   listContent: {
     paddingBottom: 20,

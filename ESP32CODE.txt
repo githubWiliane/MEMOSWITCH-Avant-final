@@ -1,0 +1,133 @@
+#include <WiFi.h>
+#include <WebServer.h>
+
+const char *ssid = "Memo switch";          
+const char *password = "12345678";
+
+WebServer server(80);
+
+const int NUM_RELAYS = 5;
+
+// Broches des interrupteurs (entrées)
+const int interrupteurs[NUM_RELAYS] = {19, 23, 18, 33, 4};
+
+// Broches des relais (sorties) : logique inverse (LOW = ON, HIGH = OFF)
+const int relayPins[NUM_RELAYS] = {5, 15, 27, 12, 13};
+
+// État désiré de chaque relais (pour l'interface distante)
+bool relayStates[NUM_RELAYS] = {false, false, false, false, false};
+
+// Pour le debounce
+int  lastReading[NUM_RELAYS];           // Dernière lecture brute
+int  stableState[NUM_RELAYS];           // Dernier état stable après debounce
+unsigned long lastDebounceTime[NUM_RELAYS];  // Instant où la dernière variation a été détectée
+const unsigned long debounceDelay = 50;      // Durée de debounce en millisecondes
+
+// -------------------------------------------------------------------
+// Endpoint pour retourner l'état des relais au format JSON
+// -------------------------------------------------------------------
+void handleStatus() {
+  String json = "{ \"relays\": [";
+  for (int i = 0; i < NUM_RELAYS; i++) {
+    json += "{\"pin\": " + String(relayPins[i]) + ", \"state\": " + String(relayStates[i] ? "true" : "false") + "}";
+    if(i < NUM_RELAYS - 1) json += ",";
+  }
+  json += "] }";
+  server.send(200, "application/json", json);
+}
+
+// -------------------------------------------------------------------
+// Permet le contrôle distant (ex: depuis une appli React Native)
+// -------------------------------------------------------------------
+void handleToggle() {
+  if (server.hasArg("pin")) {
+    int pin = server.arg("pin").toInt();
+    for (int i = 0; i < NUM_RELAYS; i++) {
+      if (relayPins[i] == pin) {
+        // Bascule l'état dans relayStates
+        relayStates[i] = !relayStates[i];
+        // Écrit sur la broche (LOW = ON, HIGH = OFF)
+        digitalWrite(relayPins[i], relayStates[i] ? LOW : HIGH);
+
+        server.send(200, "text/plain", "OK");
+        Serial.printf("Remote: Relay sur la broche %d basculé à %s\n", 
+                      relayPins[i], relayStates[i] ? "ON" : "OFF");
+        return;
+      }
+    }
+  }
+  server.send(400, "text/plain", "Invalid Pin");
+}
+
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+void setup() {
+  Serial.begin(115200);
+  
+  // Démarrage du WiFi en mode Point d'Accès (AP)
+  WiFi.softAP(ssid, password);
+  Serial.println("WiFi AP démarré");
+  Serial.print("Adresse IP: ");
+  Serial.println(WiFi.softAPIP());
+
+  // Configuration des interrupteurs en entrée + initialisation des variables de debounce
+  for (int i = 0; i < NUM_RELAYS; i++) {
+    pinMode(interrupteurs[i], INPUT_PULLDOWN);
+    lastReading[i] = digitalRead(interrupteurs[i]);
+    stableState[i]  = lastReading[i];
+    lastDebounceTime[i] = 0;
+  }
+
+  // Configuration des broches de relais en sortie, et initialisation à OFF (HIGH)
+  for (int i = 0; i < NUM_RELAYS; i++) {
+    pinMode(relayPins[i], OUTPUT);
+    digitalWrite(relayPins[i], HIGH); // OFF
+  }
+  
+  // Définition des endpoints web
+  server.on("/toggle", handleToggle);
+  server.on("/status", handleStatus);
+  server.begin();
+  Serial.println("Serveur web démarré");
+}
+
+// -------------------------------------------------------------------
+// LOOP
+// -------------------------------------------------------------------
+void loop() {
+  server.handleClient();
+  unsigned long currentMillis = millis();
+  
+  // Lecture et debounce pour chaque interrupteur
+  for (int i = 0; i < NUM_RELAYS; i++) {
+    int reading = digitalRead(interrupteurs[i]);
+    
+    // Détection d'un changement dans la lecture brute
+    if (reading != lastReading[i]) {
+      lastDebounceTime[i] = currentMillis;  // Réinitialisation du timer de debounce
+      lastReading[i] = reading;             // Mise à jour de la lecture brute
+    }
+    
+    // Si l'état est stable depuis plus de debounceDelay ms
+    if ((currentMillis - lastDebounceTime[i]) > debounceDelay) {
+      // Si l'état stable est différent de la dernière lecture stable
+      if (stableState[i] != reading) {
+        stableState[i] = reading; // Mise à jour de l'état stable
+
+        // Mise à jour de l'état en fonction de l'interrupteur physique
+        if (stableState[i] == HIGH) {
+          // Interrupteur en position HAUTE => relais ON
+          relayStates[i] = true;
+          digitalWrite(relayPins[i], LOW); // LOW = ON
+          Serial.printf("Physique: Broche %d => ON\n", relayPins[i]);
+        } else {
+          // Interrupteur en position BASSE => relais OFF
+          relayStates[i] = false;
+          digitalWrite(relayPins[i], HIGH); // HIGH = OFF
+          Serial.printf("Physique: Broche %d => OFF\n", relayPins[i]);
+        }
+      }
+    }
+  }
+}
