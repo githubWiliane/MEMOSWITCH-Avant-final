@@ -362,16 +362,13 @@ const MemoSwitchApp = ({ navigation }) => {
 
       {/* Nouveaux boutons Record et Play/Stop */}
       <View style={styles.recordPlayContainer}>
-  <TouchableOpacity
-    style={[styles.recordButton, isRecording && styles.recording]}
-    onPress={toggleRecording}
-  >
-    <Text style={styles.recordButtonText}>{isRecording ? 'Stop Recording' : 'Record'}</Text>
-  </TouchableOpacity>
-  <TouchableOpacity style={styles.playButton} onPress={playRecording}>
-    <Text style={styles.playButtonText}>{isPlaying ? 'Stop' : 'Play'}</Text>
-  </TouchableOpacity>
-</View>
+        <TouchableOpacity style={styles.recordButton} onPress={toggleRecording}>
+          <Text style={styles.recordButtonText}>{isRecording ? 'Stop Recording' : 'Record'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.playButton} onPress={playRecording}>
+          <Text style={styles.playButtonText}>{isPlaying ? 'Stop' : 'Play'}</Text>
+        </TouchableOpacity>
+      </View>
       
       {/* Liste scrollable des lampes réparties en sections */}
       <SectionList
@@ -513,9 +510,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     flex: 0.45,
     alignItems: 'center',
-  },
-  recording: {
-    backgroundColor: 'red', // Devient rouge lorsque l'enregistrement est actif
   },
   recordButtonText: {
     color: '#000',

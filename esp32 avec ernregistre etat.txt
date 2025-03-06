@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <WebServer.h>
+#include <Preferences.h>
 
 const char *ssid = "Memo_switch_connecter";          
 const char *password = "12345678";
@@ -15,13 +16,17 @@ const int interrupteurs[NUM_RELAYS] = {19, 23, 18, 33, 4};
 const int relayPins[NUM_RELAYS] = {5, 15, 27, 12, 13};
 
 // État désiré de chaque relais (pour l'interface distante)
+// true = ON, false = OFF
 bool relayStates[NUM_RELAYS] = {false, false, false, false, false};
 
 // Pour le debounce
-int  lastReading[NUM_RELAYS];           // Dernière lecture brute
-int  stableState[NUM_RELAYS];           // Dernier état stable après debounce
+int  lastReading[NUM_RELAYS];            // Dernière lecture brute
+int  stableState[NUM_RELAYS];            // Dernier état stable après debounce
 unsigned long lastDebounceTime[NUM_RELAYS];  // Instant où la dernière variation a été détectée
 const unsigned long debounceDelay = 50;      // Durée de debounce en millisecondes
+
+// Objet Preferences pour sauvegarder les états dans la mémoire non volatile
+Preferences preferences;
 
 // -------------------------------------------------------------------
 // Endpoint pour retourner l'état des relais au format JSON
@@ -46,9 +51,12 @@ void handleToggle() {
       if (relayPins[i] == pin) {
         // Bascule l'état dans relayStates
         relayStates[i] = !relayStates[i];
-        // Écrit sur la broche (LOW = ON, HIGH = OFF)
+        // Mise à jour physique du relais (LOW = ON, HIGH = OFF)
         digitalWrite(relayPins[i], relayStates[i] ? LOW : HIGH);
-
+        // Sauvegarde dans la mémoire non volatile
+        String key = "relay" + String(i);
+        preferences.putBool(key.c_str(), relayStates[i]);
+        
         server.send(200, "text/plain", "OK");
         Serial.printf("Remote: Relay sur la broche %d basculé à %s\n", 
                       relayPins[i], relayStates[i] ? "ON" : "OFF");
@@ -65,6 +73,9 @@ void handleToggle() {
 void setup() {
   Serial.begin(115200);
   
+  // Initialisation de Preferences (namespace "lampState")
+  preferences.begin("lampState", false);
+  
   // Démarrage du WiFi en mode Point d'Accès (AP)
   WiFi.softAP(ssid, password);
   Serial.println("WiFi AP démarré");
@@ -79,10 +90,15 @@ void setup() {
     lastDebounceTime[i] = 0;
   }
 
-  // Configuration des broches de relais en sortie, et initialisation à OFF (HIGH)
+  // Configuration des broches de relais en sortie et restauration des états sauvegardés
   for (int i = 0; i < NUM_RELAYS; i++) {
     pinMode(relayPins[i], OUTPUT);
-    digitalWrite(relayPins[i], HIGH); // OFF
+    String key = "relay" + String(i);
+    // Charger l'état sauvegardé, false par défaut
+    relayStates[i] = preferences.getBool(key.c_str(), false);
+    digitalWrite(relayPins[i], relayStates[i] ? LOW : HIGH);
+    Serial.printf("Initialisation: Relay sur la broche %d est %s\n", 
+                  relayPins[i], relayStates[i] ? "ON" : "OFF");
   }
   
   // Définition des endpoints web
@@ -115,16 +131,19 @@ void loop() {
       if (stableState[i] != reading) {
         stableState[i] = reading; // Mise à jour de l'état stable
 
+        String key = "relay" + String(i);
         // Mise à jour de l'état en fonction de l'interrupteur physique
         if (stableState[i] == HIGH) {
           // Interrupteur en position HAUTE => relais ON
           relayStates[i] = true;
           digitalWrite(relayPins[i], LOW); // LOW = ON
+          preferences.putBool(key.c_str(), true);
           Serial.printf("Physique: Broche %d => ON\n", relayPins[i]);
         } else {
           // Interrupteur en position BASSE => relais OFF
           relayStates[i] = false;
           digitalWrite(relayPins[i], HIGH); // HIGH = OFF
+          preferences.putBool(key.c_str(), false);
           Serial.printf("Physique: Broche %d => OFF\n", relayPins[i]);
         }
       }
